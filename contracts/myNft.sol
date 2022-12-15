@@ -13,7 +13,7 @@ contract MyNft is ERC721, ERC721URIStorage, Ownable {
     constructor() ERC721("LubnaRose", "LR") {}
 
     function _baseURI() internal pure override returns (string memory) {
-        return "http://api.npoint.io/";            // "ipfs://happyMonkeyBaseURI/"
+        return "ipfs://LubnaRoseBaseURI/";            // "ipfs://happyMonkeyBaseURI/"
     }
 
     function safeMint(address to, string memory uri) public onlyOwner {
