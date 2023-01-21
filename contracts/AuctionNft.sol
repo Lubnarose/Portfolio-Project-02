@@ -1,52 +1,59 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.0;
-interface ImyNft {
-    function transferFrom(address _from, address _to, uint _nftId) external;
-}
 
-contract AuctionNft {
-    uint private constant DURATION = 7 days;
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 
-    ImyNft public immutable nft;
-    uint public immutable nftId;
+contract NFT_Auction is ERC721 {
+    address public owner;
+    mapping (address => mapping (uint256 => uint256)) public royalties;
+    mapping (address => mapping (uint256 => bool)) public sold;
+    mapping (uint256 => bool) public nftListing;
+    mapping (uint256 => address) public highestBidder;
+    mapping (uint256 => uint256) public highestBid;
+    mapping (uint256 => uint) public bidEnd;
+    uint256 public maxRoyaltyPercentage;
 
-    address payable public immutable seller;
-    uint public immutable startingPrice;
-    uint public immutable startAt;
-    uint public immutable expiresAt;
-    uint public immutable discountRate;
-
-    constructor(uint _startingPrice, uint _discountRate, address _nft, uint _nftId) 
-    {
-        seller = payable(msg.sender);
-        startingPrice = _startingPrice;
-        startAt = block.timestamp;
-        expiresAt = block.timestamp + DURATION;
-        discountRate = _discountRate;
-
-        require(_startingPrice >= _discountRate * DURATION, "starting price < min");
-
-        nft = ImyNft(_nft);
-        nftId = _nftId;
+    constructor() ERC721("NFT_Auction", "NFTA") public {
+        owner = msg.sender;
+        maxRoyaltyPercentage = 20;
     }
 
-    function getPrice() public view returns (uint) {
-        uint timeElapsed = block.timestamp - startAt;
-        uint discount = discountRate * timeElapsed;
-        return startingPrice - discount;
+    function listForSale(uint256 tokenId, uint256 initialBid, uint256 royaltyPercentage, uint bidDuration) public {
+        require(msg.sender == ownerOf(tokenId), "Only the owner can list this NFT for sale");
+        require(!nftListing[tokenId], "This NFT is already listed for sale");
+        require(royaltyPercentage <= maxRoyaltyPercentage, "The maximum allowed royalty percentage is 20%");
+
+        nftListing[tokenId] = true;
+        highestBid[tokenId] = initialBid;
+        highestBidder[tokenId] = msg.sender;
+        bidEnd[tokenId] = now + bidDuration;
+        royalties[msg.sender][tokenId] = (initialBid * royaltyPercentage) / 100;
     }
 
-    function buy() external payable {
-        require(block.timestamp < expiresAt, "auction expired");
+    function cancelSell(uint256 tokenId) public {
+        require(msg.sender == ownerOf(tokenId), "Only the owner can cancel the sale of this NFT");
+        require(nftListing[tokenId], "This NFT is not currently listed for sale");
 
-        uint price = getPrice();
-        require(msg.value >= price, "ETH < price");
+        nftListing[tokenId] = false;
+        delete royalties[msg.sender][tokenId];
+        delete highestBid[tokenId];
+        delete highestBidder[tokenId];
+        delete bidEnd[tokenId];
+    }
 
-        nft.transferFrom(seller, msg.sender, nftId);
-        uint refund = msg.value - price;
-        if (refund > 0) {
-            payable(msg.sender).transfer(refund);
+    function bid(uint256 tokenId, uint256 bidAmount) public payable {
+        require(nftListing[tokenId], "This NFT is not currently listed for sale");
+        require(bidAmount > highestBid[tokenId], "Bid amount must be higher than the current highest bid");
+        require(now <= bidEnd[tokenId], "The bidding period for this NFT has ended");
+        require(msg.value >= bidAmount, "The sent value is not enough to complete the bid");
+
+        address previousBidder = highestBidder[tokenId];
+        if (previousBidder != msg.sender) {
+            if (previousBidder != address(0)) {
+                previousBidder.transfer(highestBid[tokenId]);
+            }
         }
-        selfdestruct(seller);
+        highestBid[tokenId] = bidAmount;
+        highestBidder[tokenId] = msg.sender;
     }
 }
